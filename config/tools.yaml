@@ -18,7 +18,7 @@ tools:
     vendor: OpenAI
     monthly_cost_per_seat: 60   # PLACEHOLDER: set from the actual contract
     monthly_flat_cost: 0
-    licensed_seats: 272         # from 2026-06 workspace export: 243 enabled + 29 pending
+    licensed_seats: 201         # "Seats purchased" per admin console, 2026-06-12
     data_quality: export
   claude:
     display_name: Claude Team
