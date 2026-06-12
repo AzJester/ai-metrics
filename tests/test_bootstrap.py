@@ -1,4 +1,5 @@
 import shutil
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 import duckdb
@@ -27,6 +28,21 @@ def test_bootstrap_falls_back_to_sample_data(tmp_path, monkeypatch):
     # Second call reuses the existing warehouse.
     _, mode2 = ensure_warehouse(root)
     assert mode2 == "existing"
+
+
+def test_bootstrap_concurrent_cold_start(tmp_path, monkeypatch):
+    """Concurrent boots (Streamlit health check + first visitors) must not
+    hit DuckDB write-write conflicts; each builder uses its own temp file."""
+    root = _fake_repo(tmp_path, monkeypatch)
+    with ThreadPoolExecutor(max_workers=4) as pool:
+        results = list(pool.map(lambda _: ensure_warehouse(root), range(4)))
+    assert all(path.exists() for path, _ in results)
+    assert {mode for _, mode in results} <= {"sample", "existing"}
+    # No leftover temp files from losing builders.
+    assert not list((root / "data").glob(".*tmp*"))
+    con = duckdb.connect(str(results[0][0]), read_only=True)
+    assert con.execute("SELECT COUNT(*) FROM fact_usage_daily").fetchone()[0] > 0
+    con.close()
 
 
 def test_bootstrap_prefers_public_dir(tmp_path, monkeypatch):
