@@ -1,0 +1,43 @@
+# Scheduled API ingest. Connectors self-skip when their secrets are absent,
+# so this is a no-op until credentials are configured in repo settings:
+#   OPENAI_ADMIN_API_KEY, OPENAI_WORKSPACE_ID   (ChatGPT Enterprise)
+#   ANTHROPIC_ADMIN_KEY                         (Claude Code analytics)
+#   COPILOT_GITHUB_TOKEN, COPILOT_GITHUB_ORG    (Copilot Business/Enterprise)
+#
+# The warehouse built here is uploaded as a build artifact. For production,
+# point AI_METRICS_DB at persistent storage (or load to Postgres/Azure SQL)
+# instead; see PLAN.md section 4.
+name: Scheduled ingest
+
+on:
+  schedule:
+    - cron: "17 5 * * *"
+  workflow_dispatch:
+
+jobs:
+  ingest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e .
+      - name: Ingest API sources
+        env:
+          OPENAI_ADMIN_API_KEY: ${{ secrets.OPENAI_ADMIN_API_KEY }}
+          OPENAI_WORKSPACE_ID: ${{ secrets.OPENAI_WORKSPACE_ID }}
+          ANTHROPIC_ADMIN_KEY: ${{ secrets.ANTHROPIC_ADMIN_KEY }}
+          GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GITHUB_ORG: ${{ secrets.COPILOT_GITHUB_ORG }}
+        run: |
+          ai-metrics init
+          ai-metrics ingest --days 30
+          ai-metrics export
+      - uses: actions/upload-artifact@v4
+        with:
+          name: warehouse-and-curated
+          path: |
+            data/warehouse.duckdb
+            data/curated/
+          retention-days: 30

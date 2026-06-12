@@ -1,0 +1,14 @@
+__pycache__/
+*.pyc
+*.egg-info/
+dist/
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Warehouse and local data: real exports contain employee emails; never commit them.
+data/warehouse.duckdb
+data/warehouse.duckdb.wal
+data/raw/
+data/curated/
+data/drop/*.csv

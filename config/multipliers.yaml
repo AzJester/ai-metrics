@@ -1,0 +1,51 @@
+# Task-time model: minutes saved per unit of the named metric.
+#
+# These are STARTING assumptions (see PLAN.md section 3). Recalibrate against
+# the quarterly pulse survey and bump `version` whenever values change. Old
+# versions stay in the warehouse so historical reports remain auditable.
+# Versions sort as strings, so keep the YYYY-MM format.
+version: "2026-06"
+
+multipliers:
+  - tool: chatgpt
+    metrics: [active, active_days, active_users]
+    unit: active day
+    conservative: 10
+    expected: 25
+    basis: Published enterprise copilot studies cluster at 30-60 min/day for daily users; discounted heavily at first.
+  - tool: claude
+    metrics: [active, active_days, active_users]
+    unit: active day
+    conservative: 10
+    expected: 25
+    basis: Same basis as ChatGPT.
+  - tool: claude_code
+    metrics: [active, active_days]
+    unit: active day
+    conservative: 15
+    expected: 40
+    basis: Developer-assistant studies show large per-task speedups; net real-world effect is smaller.
+  - tool: copilot
+    metrics: [active, active_days, active_users]
+    unit: active day
+    conservative: 15
+    expected: 40
+    basis: GitHub controlled studies; survey-derived activity until the Metrics API is available.
+  - tool: rovo
+    metrics: [actions]
+    unit: search/agent action
+    conservative: 1
+    expected: 3
+    basis: Time-to-find-information studies.
+  - tool: pwin
+    metrics: [drafts]
+    unit: proposal draft generated
+    conservative: 240
+    expected: 960
+    basis: BD team estimate of first-draft effort displaced; validate with proposal managers.
+  - tool: icertis
+    metrics: [agreements_ai_reviewed]
+    unit: agreement AI-reviewed
+    conservative: 15
+    expected: 45
+    basis: Legal team estimate; validate.
