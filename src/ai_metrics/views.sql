@@ -30,16 +30,18 @@ FROM v_fact_dedup
 WHERE user_id <> ''
 GROUP BY 1, 2, 3;
 
--- Adoption: MAU and activation rate per tool per month. Prefers user-level
--- data; falls back to org-level reported active users (note: the fallback is
--- the peak reported daily value, a lower bound on true MAU, unless the
--- export carries month-grain values).
+-- Adoption: MAU and activation rate per tool per month. A user is active if
+-- they have any positive user-level usage fact that month (some exports only
+-- carry message totals, not active-day counts). Falls back to org-level
+-- reported active users (note: the fallback is the peak reported daily
+-- value, a lower bound on true MAU, unless the export carries month-grain
+-- values).
 CREATE OR REPLACE VIEW kpi_adoption_monthly AS
 WITH user_level AS (
     SELECT date_trunc('month', date)::DATE AS month, tool_id,
            COUNT(DISTINCT user_id) AS mau
     FROM v_fact_dedup
-    WHERE user_id <> '' AND metric IN ('active', 'active_days') AND value > 0
+    WHERE user_id <> '' AND value > 0
     GROUP BY 1, 2
 ),
 org_level AS (
@@ -78,7 +80,7 @@ SELECT
     tool_id,
     COUNT(DISTINCT user_id) AS wau
 FROM v_fact_dedup
-WHERE user_id <> '' AND metric IN ('active', 'active_days') AND value > 0
+WHERE user_id <> '' AND value > 0
 GROUP BY 1, 2;
 
 CREATE OR REPLACE VIEW kpi_engagement_monthly AS
@@ -86,10 +88,10 @@ SELECT
     month,
     tool_id,
     COUNT(*) AS active_users,
-    ROUND(AVG(active_days), 1) AS avg_active_days,
+    ROUND(AVG(NULLIF(active_days, 0)), 1) AS avg_active_days,
     ROUND(SUM(messages) / NULLIF(COUNT(*), 0), 1) AS messages_per_active_user
 FROM v_user_activity_monthly
-WHERE active_days > 0
+WHERE active_days > 0 OR COALESCE(messages, 0) > 0
 GROUP BY 1, 2;
 
 CREATE OR REPLACE VIEW v_department_monthly AS
@@ -100,16 +102,16 @@ SELECT
     COUNT(DISTINCT a.user_id) AS active_users
 FROM v_user_activity_monthly a
 LEFT JOIN dim_user u ON u.user_id = a.user_id
-WHERE a.active_days > 0
+WHERE a.active_days > 0 OR COALESCE(a.messages, 0) > 0
 GROUP BY 1, 2, 3;
 
 -- Retention: share of a month's active users who are active again the
 -- following month.
 CREATE OR REPLACE VIEW kpi_retention_monthly AS
 WITH actives AS (
-    SELECT DISTINCT month, tool_id, user_id
-    FROM v_user_activity_monthly
-    WHERE active_days > 0
+    SELECT DISTINCT date_trunc('month', date)::DATE AS month, tool_id, user_id
+    FROM v_fact_dedup
+    WHERE user_id <> '' AND value > 0
 )
 SELECT
     a.month,
@@ -125,25 +127,36 @@ LEFT JOIN actives n
 GROUP BY 1, 2;
 
 -- Hours saved: telemetry x task-time multipliers, as a conservative/expected
--- range. Per tool-month, user-level rows win over org-level rows so a tool
--- reporting both is not double counted.
+-- range. Two anti-double-count rules per tool-month:
+--   1. user-level rows win over org-level rows;
+--   2. day-grain metrics (active/active_days/active_users) win over
+--      volume-grain fallbacks (e.g. per-message), so a tool with both daily
+--      API data and a monthly totals export is only counted once.
 CREATE OR REPLACE VIEW kpi_hours_saved_monthly AS
 WITH joined AS (
     SELECT
         date_trunc('month', f.date)::DATE AS month,
         f.tool_id,
         f.user_id <> '' AS user_level,
+        CASE WHEN f.metric IN ('active', 'active_days', 'active_users') THEN 1 ELSE 2 END
+            AS basis_rank,
         f.value * m.minutes_saved_conservative AS minutes_c,
         f.value * m.minutes_saved_expected AS minutes_e
     FROM v_fact_dedup f
     JOIN v_multiplier_current m
         ON m.tool_id = f.tool_id AND m.metric = f.metric
 ),
+ranked AS (
+    SELECT *,
+           MIN(basis_rank) OVER (PARTITION BY month, tool_id, user_level) AS best_rank
+    FROM joined
+),
 agg AS (
     SELECT month, tool_id, user_level,
            SUM(minutes_c) AS minutes_c,
            SUM(minutes_e) AS minutes_e
-    FROM joined
+    FROM ranked
+    WHERE basis_rank = best_rank
     GROUP BY 1, 2, 3
 )
 SELECT
