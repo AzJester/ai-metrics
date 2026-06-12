@@ -1,0 +1,66 @@
+# Tool registry. Seats and costs drive the activation-rate and ROI KPIs, so
+# edit these to match your actual contracts before presenting numbers.
+#
+# data_quality is surfaced on the dashboard so viewers always know how a
+# number was measured:
+#   api    = pulled automatically from a vendor API
+#   export = manual CSV export from an admin console
+#   vendor = CSV supplied by the vendor on request
+#   survey = self-reported only (no telemetry exists)
+defaults:
+  # Blended fully burdened hourly rate ($/hr) used to value hours saved.
+  # Get the real figure from Finance.
+  burdened_rate: 85
+
+tools:
+  chatgpt:
+    display_name: ChatGPT Enterprise
+    vendor: OpenAI
+    monthly_cost_per_seat: 60
+    monthly_flat_cost: 0
+    licensed_seats: 100
+    data_quality: api
+  claude:
+    display_name: Claude Team
+    vendor: Anthropic
+    monthly_cost_per_seat: 30
+    monthly_flat_cost: 0
+    licensed_seats: 50
+    data_quality: export
+  claude_code:
+    display_name: Claude Code
+    vendor: Anthropic
+    # Covered by Claude Team seats; kept separate so coding usage is not
+    # double counted against chat usage.
+    monthly_cost_per_seat: 0
+    monthly_flat_cost: 0
+    licensed_seats: 0
+    data_quality: api
+  copilot:
+    display_name: GitHub Copilot (Free)
+    vendor: GitHub
+    monthly_cost_per_seat: 0
+    monthly_flat_cost: 0
+    licensed_seats: 40
+    data_quality: survey
+  rovo:
+    display_name: Rovo (Atlassian)
+    vendor: Atlassian
+    monthly_cost_per_seat: 0
+    monthly_flat_cost: 0
+    licensed_seats: 200
+    data_quality: export
+  icertis:
+    display_name: Icertis CLM
+    vendor: Icertis
+    monthly_cost_per_seat: 0
+    monthly_flat_cost: 0
+    licensed_seats: 25
+    data_quality: vendor
+  pwin:
+    display_name: pWin.ai
+    vendor: pWin.ai
+    monthly_cost_per_seat: 0
+    monthly_flat_cost: 0
+    licensed_seats: 15
+    data_quality: vendor
