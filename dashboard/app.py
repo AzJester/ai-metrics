@@ -22,8 +22,16 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 st.set_page_config(page_title="AI Usage Metrics", layout="wide")
 
+# cache_resource computes once per process under a lock, so concurrent
+# sessions at cold start don't race to build the warehouse.
+@st.cache_resource
+def _warehouse() -> tuple[str, str]:
+    path, mode = ensure_warehouse(REPO_ROOT)
+    return str(path), mode
+
+
 try:
-    DB_PATH, DB_MODE = ensure_warehouse(REPO_ROOT)
+    DB_PATH, DB_MODE = _warehouse()
 except Exception as e:
     st.error(f"Could not initialize the warehouse: {e}")
     st.stop()

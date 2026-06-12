@@ -3,12 +3,19 @@
 Cloud hosts get a fresh filesystem on every boot, so the warehouse must be
 rebuildable from what's in the repo: committed CSVs in data/public/ if
 present, generated sample data otherwise.
+
+Concurrency: at boot, several script runs can race to build the warehouse
+(Streamlit's health checker plus the first visitors). Each builder therefore
+writes to its own unique temp file and atomically renames it into place;
+concurrent builders produce identical content, so whichever rename lands
+last is fine, and no two writers ever touch the same DuckDB file.
 """
 
 from __future__ import annotations
 
 import os
 import tempfile
+import uuid
 from pathlib import Path
 
 
@@ -27,8 +34,10 @@ def ensure_warehouse(repo_root: Path) -> tuple[Path, str]:
     from . import db, sample_data
     from .ingest import run_drop_ingest
 
-    con = db.connect_and_init()
+    tmp_db = db_path.with_name(f".{db_path.name}.{uuid.uuid4().hex}.tmp")
+    con = db.connect(path=tmp_db)
     try:
+        db.init_db(con)
         public_dir = repo_root / "data" / "public"
         if public_dir.is_dir() and list(public_dir.glob("*.csv")):
             run_drop_ingest(con, public_dir, archive=False)
@@ -41,4 +50,10 @@ def ensure_warehouse(repo_root: Path) -> tuple[Path, str]:
             mode = "sample"
     finally:
         con.close()
+
+    if db_path.exists():
+        # A concurrent builder won the race; its warehouse is equivalent.
+        tmp_db.unlink(missing_ok=True)
+        return db_path, "existing"
+    os.replace(tmp_db, db_path)
     return db_path, mode

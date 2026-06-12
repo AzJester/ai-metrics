@@ -17,8 +17,8 @@ def db_path() -> Path:
     return Path(os.environ.get("AI_METRICS_DB", DEFAULT_DB_PATH))
 
 
-def connect(read_only: bool = False) -> duckdb.DuckDBPyConnection:
-    path = db_path()
+def connect(read_only: bool = False, path: Path | None = None) -> duckdb.DuckDBPyConnection:
+    path = path or db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     return duckdb.connect(str(path), read_only=read_only)
 
