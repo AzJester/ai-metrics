@@ -15,6 +15,7 @@ Accepts three grains:
 
 from __future__ import annotations
 
+import ast
 from datetime import date, timedelta
 
 import pandas as pd
@@ -58,7 +59,8 @@ def _month_spans(start: date, end: date) -> list[tuple[date, int]]:
     return spans
 
 
-def _spread_row(email, total, p_start, p_end, first, last, created) -> list[dict]:
+def _spread_row(email, total, p_start, p_end, first, last, created,
+                metric: str = "messages") -> list[dict]:
     """Distribute a period total across months of the user's activity window."""
     if total is None or pd.isna(total) or total <= 0:
         return []
@@ -74,18 +76,63 @@ def _spread_row(email, total, p_start, p_end, first, last, created) -> list[dict
     spans = _month_spans(w_start, w_end)
     total_days = sum(d for _, d in spans)
     return [
-        {"date": m, "user_id": email, "metric": "messages",
+        {"date": m, "user_id": email, "metric": metric,
          "value": float(total) * d / total_days}
         for m, d in spans
     ]
 
 
-def parse(df: pd.DataFrame, messages_aliases: list[str]) -> pd.DataFrame:
+def _parse_breakdown(raw) -> dict:
+    """Breakdown cells are dict literals like {'Search': 95, 'Memory': 13}."""
+    if raw is None or pd.isna(raw):
+        return {}
+    try:
+        parsed = ast.literal_eval(str(raw))
+    except (ValueError, SyntaxError):
+        return {}
+    if not isinstance(parsed, dict):
+        return {}
+    return {str(k): v for k, v in parsed.items() if isinstance(v, (int, float)) and v > 0}
+
+
+def parse(
+    df: pd.DataFrame,
+    messages_aliases: list[str],
+    extra_numeric: list[tuple[str, list[str]]] | None = None,
+    breakdowns: list[tuple[str, list[str]]] | None = None,
+) -> pd.DataFrame:
+    """extra_numeric: [(metric_name, column_aliases)] additional counters.
+    breakdowns: [(metric_prefix, column_aliases)] dict-literal columns emitted
+    as one metric per key, named '<prefix>:<key>'. Both follow the same
+    grain handling (daily / period / long-period spreading) as messages."""
     df = normalize_headers(df)
     email_col = require_col(df, EMAIL_ALIASES, "user email")
     date_col = pick_col(df, DATE_ALIASES)
     period_col = pick_col(df, PERIOD_ALIASES)
     msg_col = pick_col(df, messages_aliases)
+
+    extras = []
+    for metric, aliases in extra_numeric or []:
+        col = pick_col(df, aliases)
+        if col:
+            extras.append((metric, numeric(df[col])))
+    bdowns = []
+    for prefix, aliases in breakdowns or []:
+        col = pick_col(df, aliases)
+        if col:
+            bdowns.append((prefix, df[col]))
+
+    def _point_extras(i, d, email):
+        out = []
+        for metric, series in extras:
+            v = series.iloc[i]
+            if pd.notna(v) and v > 0:
+                out.append({"date": d, "user_id": email, "metric": metric, "value": float(v)})
+        for prefix, series in bdowns:
+            for key, v in _parse_breakdown(series.iloc[i]).items():
+                out.append({"date": d, "user_id": email, "metric": f"{prefix}:{key}",
+                            "value": float(v)})
+        return out
 
     rows = []
     if date_col:
@@ -103,6 +150,7 @@ def parse(df: pd.DataFrame, messages_aliases: list[str]) -> pd.DataFrame:
                 rows.append({"date": d, "user_id": email, "metric": "active", "value": 1.0})
             if m is not None:
                 rows.append({"date": d, "user_id": email, "metric": "messages", "value": m})
+            rows.extend(_point_extras(i, d, email))
     elif period_col:
         starts = to_dates(df[period_col])
         end_col = pick_col(df, PERIOD_END_ALIASES)
@@ -129,17 +177,21 @@ def parse(df: pd.DataFrame, messages_aliases: list[str]) -> pd.DataFrame:
             email = df[email_col].iloc[i]
             p_end = ends.iloc[i] if ends is not None else None
             if valid_date(p_end) and (p_end - d).days > LONG_PERIOD_DAYS:
-                rows.extend(
-                    _spread_row(
-                        email,
-                        msgs.iloc[i] if msgs is not None else None,
-                        d,
-                        p_end,
-                        firsts.iloc[i] if firsts is not None else None,
-                        lasts.iloc[i] if lasts is not None else None,
-                        createds.iloc[i] if createds is not None else None,
-                    )
+                window = (
+                    d,
+                    p_end,
+                    firsts.iloc[i] if firsts is not None else None,
+                    lasts.iloc[i] if lasts is not None else None,
+                    createds.iloc[i] if createds is not None else None,
                 )
+                rows.extend(
+                    _spread_row(email, msgs.iloc[i] if msgs is not None else None, *window)
+                )
+                for metric, series in extras:
+                    rows.extend(_spread_row(email, series.iloc[i], *window, metric=metric))
+                for prefix, series in bdowns:
+                    for key, v in _parse_breakdown(series.iloc[i]).items():
+                        rows.extend(_spread_row(email, v, *window, metric=f"{prefix}:{key}"))
                 continue
             if days is not None and pd.notna(days.iloc[i]) and days.iloc[i] > 0:
                 rows.append(
@@ -151,6 +203,7 @@ def parse(df: pd.DataFrame, messages_aliases: list[str]) -> pd.DataFrame:
                     {"date": d, "user_id": email, "metric": "messages",
                      "value": float(msgs.iloc[i])}
                 )
+            rows.extend(_point_extras(i, d, email))
     else:
         raise IngestError(
             f"Need a date column ({DATE_ALIASES}) or a period column ({PERIOD_ALIASES}); "

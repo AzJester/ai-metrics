@@ -28,6 +28,7 @@ def test_month_spans():
 def test_spread_respects_activity_window():
     df = pd.DataFrame([_row("a@x.com", 550, "2026-04-01", "2026-05-30")])
     facts = exports.parse_chatgpt(df)
+    facts = facts[facts["user_id"] != ""]  # drop org-level seat snapshot
     assert set(facts["date"]) == {date(2026, 4, 1), date(2026, 5, 1)}
     # 30 days in April + 30 active days in May (Apr 1 - May 30) = 60 days.
     by_month = facts.set_index("date")["value"]
@@ -39,6 +40,7 @@ def test_spread_respects_activity_window():
 def test_spread_starts_at_invite_when_no_earlier_activity():
     df = pd.DataFrame([_row("b@x.com", 100, None, None, created="2026-05-01")])
     facts = exports.parse_chatgpt(df)
+    facts = facts[facts["user_id"] != ""]
     assert min(facts["date"]) == date(2026, 5, 1)
     assert facts["value"].sum() == pytest.approx(100)
 
@@ -46,15 +48,40 @@ def test_spread_starts_at_invite_when_no_earlier_activity():
 def test_inconsistent_window_falls_back_to_full_period():
     df = pd.DataFrame([_row("c@x.com", 120, "2026-06-30", "2026-01-01")])
     facts = exports.parse_chatgpt(df)
+    facts = facts[facts["user_id"] != ""]
     assert min(facts["date"]) == date(2025, 7, 1)
     assert facts["value"].sum() == pytest.approx(120)
 
 
-def test_zero_or_missing_messages_emit_nothing():
+def test_zero_or_missing_messages_emit_no_user_facts():
     df = pd.DataFrame(
         [_row("idle@x.com", 0, None, None), _row("pending@x.com", None, None, None)]
     )
-    assert exports.parse_chatgpt(df).empty
+    facts = exports.parse_chatgpt(df)
+    assert facts[facts["user_id"] != ""].empty
+
+
+def test_breakdowns_and_extras_spread():
+    df = pd.DataFrame(
+        [
+            {
+                **_row("d@x.com", 600, "2026-04-01", "2026-05-30"),
+                "gpt_messages": 60,
+                "credits_used": 30.5,
+                "model_to_messages": "{'gpt-5.3': 400, 'gpt-5.5-instant': 200}",
+                "tool_to_messages": "{'Search': 90, 'Retrieval': 10}",
+            }
+        ]
+    )
+    facts = exports.parse_chatgpt(df)
+    by_metric = facts.groupby("metric")["value"].sum()
+    assert by_metric["gpt_messages"] == pytest.approx(60)
+    assert by_metric["credits_used"] == pytest.approx(30.5)
+    assert by_metric["model_messages:gpt-5.3"] == pytest.approx(400)
+    assert by_metric["tool_usage:Search"] == pytest.approx(90)
+    # Breakdown is spread across the same months as messages.
+    m53 = facts[facts["metric"] == "model_messages:gpt-5.3"]
+    assert set(m53["date"]) == {date(2026, 4, 1), date(2026, 5, 1)}
 
 
 def test_real_monthly_export_replaces_estimate(con):

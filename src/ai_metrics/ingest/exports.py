@@ -26,10 +26,52 @@ from .base import (
 CHATGPT_MESSAGE_ALIASES = ["messages", "message_count", "messages_sent", "total_messages", "prompts"]
 CLAUDE_MESSAGE_ALIASES = ["messages", "conversations", "chats", "prompts", "message_count"]
 
+# Extra per-user counters in the ChatGPT workspace export.
+CHATGPT_EXTRA_NUMERIC = [
+    ("gpt_messages", ["gpt_messages"]),
+    ("tool_messages", ["tool_messages"]),
+    ("project_messages", ["project_messages"]),
+    ("projects_created", ["projects_created"]),
+    ("credits_used", ["credits_used"]),
+]
+# Dict-literal breakdown columns worth keeping (named keys). The GPT/project
+# breakdowns key by opaque ids, so they're skipped.
+CHATGPT_BREAKDOWNS = [
+    ("model_messages", ["model_to_messages"]),
+    ("tool_usage", ["tool_to_messages"]),
+]
+
 
 def parse_chatgpt(df: pd.DataFrame) -> pd.DataFrame:
-    """ChatGPT Enterprise workspace analytics export (per-user)."""
-    return peruser_chat.parse(df, CHATGPT_MESSAGE_ALIASES)
+    """ChatGPT Enterprise workspace analytics export (per-user), including
+    GPT/tool/project message counters, model-family and tool breakdowns, and
+    an org-level seat-status snapshot."""
+    facts = peruser_chat.parse(
+        df, CHATGPT_MESSAGE_ALIASES,
+        extra_numeric=CHATGPT_EXTRA_NUMERIC, breakdowns=CHATGPT_BREAKDOWNS,
+    )
+
+    # Seat-status snapshot (enabled/pending/deleted) as org-level facts,
+    # dated at the export period end (it's point-in-time, not a flow).
+    norm = normalize_headers(df)
+    status_col = pick_col(norm, ["user_status", "status"])
+    end_col = pick_col(norm, ["period_end", "end_date"])
+    start_col = pick_col(norm, ["period_start", "date", "period"])
+    anchor_col = end_col or start_col
+    if status_col and anchor_col:
+        anchor = to_dates(norm[anchor_col]).dropna()
+        if len(anchor):
+            snap_date = max(anchor).replace(day=1)
+            counts = norm[status_col].astype(str).str.strip().str.lower().value_counts()
+            rows = [
+                {"date": snap_date, "user_id": "", "metric": f"seats_{status}",
+                 "value": float(n)}
+                for status, n in counts.items()
+                if status in ("enabled", "pending", "deleted") and n > 0
+            ]
+            if rows:
+                facts = pd.concat([facts, make_facts(rows)], ignore_index=True)
+    return facts
 
 
 def parse_claude(df: pd.DataFrame) -> pd.DataFrame:

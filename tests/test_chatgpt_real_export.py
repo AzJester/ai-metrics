@@ -46,7 +46,13 @@ def test_real_export_parses():
     # a zero fact (marks the seat, never counts as active).
     assert len(msgs) == 3
     assert msgs["value"].sum() == 1127
-    assert (facts["date"] == date(2026, 5, 12)).all()
+    user_facts = facts[facts["user_id"] != ""]
+    assert (user_facts["date"] == date(2026, 5, 12)).all()
+    # Org-level seat snapshot, dated at the period-end month.
+    snap = facts[facts["user_id"] == ""].set_index("metric")["value"]
+    assert snap["seats_enabled"] == 3
+    assert snap["seats_pending"] == 1
+    assert (facts[facts["user_id"] == ""]["date"] == date(2026, 6, 1)).all()
 
 
 def test_real_export_kpis(con):

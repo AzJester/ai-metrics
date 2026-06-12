@@ -53,7 +53,9 @@ def q(sql: str, params=None) -> pd.DataFrame:
 
 
 page = st.sidebar.radio(
-    "Page", ["Executive overview", "Adoption", "Efficiency & ROI", "Methodology & data quality"]
+    "Page",
+    ["Executive overview", "Adoption", "Efficiency & ROI", "ChatGPT deep dive",
+     "Methodology & data quality"],
 )
 months = q("SELECT DISTINCT month FROM kpi_adoption_monthly ORDER BY month DESC")["month"].tolist()
 if not months:
@@ -181,6 +183,144 @@ elif page == "Efficiency & ROI":
     mentions = q("SELECT * FROM v_survey_tool_mentions ORDER BY month, mentions DESC")
     if not mentions.empty:
         st.dataframe(mentions, hide_index=True, width="stretch")
+
+elif page == "ChatGPT deep dive":
+    st.title("ChatGPT Enterprise deep dive")
+    st.caption(
+        "Monthly values are estimated from the 12-month workspace export "
+        "(totals spread across each user's observed activity window). "
+        "Month-grain exports replace these estimates as they are ingested."
+    )
+
+    seats = q(
+        """
+        SELECT metric, value FROM (
+            SELECT date, metric, value, MAX(date) OVER () AS latest
+            FROM v_fact_dedup
+            WHERE tool_id = 'chatgpt' AND user_id = '' AND metric LIKE 'seats_%'
+        ) WHERE date = latest
+        """
+    )
+    seat_map = dict(zip(seats["metric"], seats["value"]))
+    purchased = q("SELECT licensed_seats FROM dim_tool WHERE tool_id='chatgpt'")
+    msgs_month = q(
+        """
+        SELECT ROUND(SUM(value)) AS v FROM v_fact_dedup
+        WHERE tool_id='chatgpt' AND metric='messages'
+          AND date_trunc('month', date)::DATE = ?
+        """,
+        [month],
+    )["v"].iloc[0]
+    power = q(
+        """
+        SELECT COUNT(*) AS n FROM (
+            SELECT user_id FROM v_fact_dedup
+            WHERE tool_id='chatgpt' AND metric='messages'
+              AND date_trunc('month', date)::DATE = ?
+            GROUP BY user_id HAVING SUM(value) >= 150
+        )
+        """,
+        [month],
+    )["n"].iloc[0]
+
+    c1, c2, c3, c4, c5 = st.columns(5)
+    c1.metric("Seats purchased", int(purchased["licensed_seats"].iloc[0]))
+    c2.metric("Seats enabled", int(seat_map.get("seats_enabled", 0)))
+    c3.metric("Seats pending", int(seat_map.get("seats_pending", 0)))
+    c4.metric("Messages (month)", f"{msgs_month:,.0f}" if pd.notna(msgs_month) else "0")
+    c5.metric("Power users (month)", int(power))
+    st.caption("Power user: estimated 150+ messages in the month (~7+ per workday).")
+
+    st.subheader("Messages by category, monthly")
+    cats = q(
+        """
+        SELECT date_trunc('month', date)::DATE AS month, metric,
+               ROUND(SUM(value)) AS messages
+        FROM v_fact_dedup
+        WHERE tool_id='chatgpt'
+          AND metric IN ('messages', 'gpt_messages', 'project_messages')
+        GROUP BY 1, 2 ORDER BY 1
+        """
+    )
+    st.altair_chart(
+        alt.Chart(cats).mark_bar().encode(
+            x="month:T", y="messages:Q", color="metric:N",
+            xOffset="metric:N", tooltip=["month:T", "metric:N", "messages:Q"],
+        ),
+        width="stretch",
+    )
+
+    left, right = st.columns(2)
+    with left:
+        st.subheader("Model family usage (full period)")
+        models = q(
+            """
+            SELECT replace(metric, 'model_messages:', '') AS model,
+                   ROUND(SUM(value)) AS messages
+            FROM v_fact_dedup
+            WHERE tool_id='chatgpt' AND metric LIKE 'model_messages:%'
+            GROUP BY 1 ORDER BY 2 DESC
+            """
+        )
+        st.altair_chart(
+            alt.Chart(models).mark_bar().encode(
+                x="messages:Q", y=alt.Y("model:N", sort="-x"),
+                tooltip=["model:N", "messages:Q"],
+            ),
+            width="stretch",
+        )
+    with right:
+        st.subheader("Tool usage (full period)")
+        tools_b = q(
+            """
+            SELECT replace(metric, 'tool_usage:', '') AS tool,
+                   ROUND(SUM(value)) AS messages
+            FROM v_fact_dedup
+            WHERE tool_id='chatgpt' AND metric LIKE 'tool_usage:%'
+            GROUP BY 1 ORDER BY 2 DESC
+            """
+        )
+        st.altair_chart(
+            alt.Chart(tools_b).mark_bar().encode(
+                x="messages:Q", y=alt.Y("tool:N", sort="-x"),
+                tooltip=["tool:N", "messages:Q"],
+            ),
+            width="stretch",
+        )
+
+    st.subheader(f"Top users ({month})")
+    st.dataframe(
+        q(
+            """
+            SELECT f.user_id AS email, u.department,
+                   ROUND(SUM(CASE WHEN f.metric='messages' THEN f.value END)) AS est_messages,
+                   ROUND(SUM(CASE WHEN f.metric='credits_used' THEN f.value END), 1)
+                       AS est_credits
+            FROM v_fact_dedup f
+            LEFT JOIN dim_user u ON u.user_id = f.user_id
+            WHERE f.tool_id='chatgpt' AND f.user_id <> ''
+              AND date_trunc('month', f.date)::DATE = ?
+            GROUP BY 1, 2 ORDER BY est_messages DESC NULLS LAST LIMIT 15
+            """,
+            [month],
+        ),
+        hide_index=True, width="stretch",
+    )
+
+    st.subheader("Credits used, monthly")
+    credits = q(
+        """
+        SELECT date_trunc('month', date)::DATE AS month, ROUND(SUM(value)) AS credits
+        FROM v_fact_dedup WHERE tool_id='chatgpt' AND metric='credits_used'
+        GROUP BY 1 ORDER BY 1
+        """
+    )
+    st.altair_chart(
+        alt.Chart(credits).mark_line(point=True).encode(
+            x="month:T", y="credits:Q", tooltip=["month:T", "credits:Q"],
+        ),
+        width="stretch",
+    )
 
 else:
     st.title("Methodology & data quality")
