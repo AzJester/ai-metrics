@@ -1,0 +1,3 @@
+# Streamlit Community Cloud installs from this file.
+# For local development use: pip install -e ".[dashboard]"
+.[dashboard]

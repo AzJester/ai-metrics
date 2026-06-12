@@ -73,12 +73,39 @@ these daily once secrets are configured.
   way the KPI definitions live in `src/ai_metrics/views.sql`, not in BI
   formulas.
 
+## Hosting the dashboard on the web (Streamlit Community Cloud)
+
+To give end users a permanent URL, deploy the dashboard to Streamlit
+Community Cloud (free, hosts straight from this repo):
+
+1. Go to <https://share.streamlit.io> and sign in with the GitHub account
+   that owns this repo.
+2. **Create app** → **Deploy a public app from GitHub** → repository
+   `AzJester/ai-metrics`, branch `main`, main file path `dashboard/app.py`.
+3. Deploy. The app gets a permanent `https://<name>.streamlit.app` URL you
+   can share.
+
+On boot the app builds its warehouse from CSVs committed to
+[`data/public/`](data/public/README.md) (same prefixes/columns as
+`data/drop/`). With no files there it falls back to generated demo data and
+shows a banner. Pushing new CSVs to the deployed branch redeploys the app
+automatically.
+
+Notes:
+- The URL is public to anyone who has it. To limit who can open it, use the
+  app's **Settings → Sharing** to require viewers to log in with allowed
+  email addresses.
+- Community Cloud apps sleep after a few days without visitors; the first
+  visit wakes them in ~30 seconds.
+
 ## Privacy
 
 The pipeline ingests usage **metadata only**: who used which tool on which
 day, and how much. Prompt and conversation content is never requested,
-parsed, or stored. Real exports contain employee emails, so `data/` is
-gitignored; keep it that way. Default dashboards aggregate by department.
+parsed, or stored. Exports contain employee emails, so `data/` is gitignored
+by default; the one exception is `data/public/`, which exists for usage data
+explicitly deemed non-confidential and feeds the hosted dashboard. Default
+dashboards aggregate by department.
 
 ## Development
 
