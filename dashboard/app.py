@@ -1,14 +1,14 @@
 """Streamlit dashboard over the DuckDB warehouse (read-only).
 
 Run with: ai-metrics dashboard
-Pages mirror PLAN.md section 6. Power BI can replace this layer by pointing
-at the same warehouse or at `ai-metrics export` output; the KPI definitions
-stay in the SQL views either way.
+Pages mirror PLAN.md section 6. On hosted deployments (Streamlit Community
+Cloud) the warehouse is rebuilt on boot from CSVs committed to data/public/,
+falling back to generated demo data. The KPI definitions stay in the SQL
+views either way.
 """
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 
 import altair as alt
@@ -16,19 +16,28 @@ import duckdb
 import pandas as pd
 import streamlit as st
 
-DB_PATH = os.environ.get("AI_METRICS_DB", "data/warehouse.duckdb")
+from ai_metrics.bootstrap import ensure_warehouse
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
 
 st.set_page_config(page_title="AI Usage Metrics", layout="wide")
 
-if not Path(DB_PATH).exists():
-    st.error(f"Warehouse not found at {DB_PATH}. Run `ai-metrics init` and "
-             "`ai-metrics ingest` first (or `ai-metrics sample-data` for a demo).")
+try:
+    DB_PATH, DB_MODE = ensure_warehouse(REPO_ROOT)
+except Exception as e:
+    st.error(f"Could not initialize the warehouse: {e}")
     st.stop()
+
+if DB_MODE == "sample":
+    st.sidebar.warning(
+        "Showing generated demo data. Commit real exports to `data/public/` "
+        "to replace it."
+    )
 
 
 @st.cache_resource
 def get_con():
-    return duckdb.connect(DB_PATH, read_only=True)
+    return duckdb.connect(str(DB_PATH), read_only=True)
 
 
 def q(sql: str, params=None) -> pd.DataFrame:
