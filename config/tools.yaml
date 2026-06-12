@@ -16,9 +16,16 @@ tools:
   chatgpt:
     display_name: ChatGPT Enterprise
     vendor: OpenAI
-    monthly_cost_per_seat: 60   # PLACEHOLDER: set from the actual contract
+    # $38.31/seat/mo pre-tax per invoice FBOHSDBE 0003 (May 2026 true-up:
+    # $46,204.67 / 201 seats / 6 mo); 41.76 includes 9% AL sales tax.
+    # Separate OpenAI API consumption invoices (~$15-55/mo) are negligible
+    # and not modeled.
+    monthly_cost_per_seat: 41.76
     monthly_flat_cost: 0
-    licensed_seats: 201         # "Seats purchased" per admin console, 2026-06-12
+    # "Seats purchased" per admin console and invoice; trued up 150 -> 201
+    # on 2026-05-04 (earlier months' activation is vs 201, slightly
+    # understated for the 150-seat era).
+    licensed_seats: 201
     data_quality: export
   claude:
     display_name: Claude Team
