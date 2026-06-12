@@ -61,7 +61,9 @@ months = q("SELECT DISTINCT month FROM kpi_adoption_monthly ORDER BY month DESC"
 if not months:
     st.warning("No usage data yet. Run `ai-metrics ingest`.")
     st.stop()
-month = st.sidebar.selectbox("Month", months, index=0)
+month = st.sidebar.selectbox(
+    "Month", months, index=0, format_func=lambda m: pd.Timestamp(m).strftime("%Y-%m")
+)
 
 if page == "Executive overview":
     st.title("AI tools: executive overview")
