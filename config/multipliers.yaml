@@ -13,12 +13,24 @@ multipliers:
     conservative: 10
     expected: 25
     basis: Published enterprise copilot studies cluster at 30-60 min/day for daily users; discounted heavily at first.
+  - tool: chatgpt
+    metrics: [messages]
+    unit: message
+    conservative: 1
+    expected: 2.5
+    basis: Fallback when an export carries only message totals (no day grain); calibrated to the active-day model at ~10 messages per active day. Day-grain data takes precedence automatically.
   - tool: claude
     metrics: [active, active_days, active_users]
     unit: active day
     conservative: 10
     expected: 25
     basis: Same basis as ChatGPT.
+  - tool: claude
+    metrics: [messages]
+    unit: message
+    conservative: 1
+    expected: 2.5
+    basis: Same per-message fallback as ChatGPT.
   - tool: claude_code
     metrics: [active, active_days]
     unit: active day
